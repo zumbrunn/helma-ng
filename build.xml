@@ -153,6 +153,7 @@
         <delete file="${helma.jar}"/>
         <delete file="run.jar"/>
         <delete file="shell.jar"/>
+        <delete dir="${javadocs}"/>
     </target>
 
 
