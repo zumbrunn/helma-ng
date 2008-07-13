@@ -12,8 +12,9 @@ var __shared__ = true;
  *
  * @param object the raw javascript object to wrap
  * @param properties the persistent object properties (optional)
+ * @param type the name of the constructor (optional, for use with unnamed constructor functions)
  */
-function Storable(object, properties) {
+function Storable(object, properties, type) {
 
     if (!(object instanceof Object) || !(object.constructor instanceof Function))
         throw new Error("object must be an object, was: " + properties);
@@ -25,8 +26,9 @@ function Storable(object, properties) {
         throw new Error("properties must be an object, was: " + properties);
 
     var ctor = object.constructor;
-    var type = ctor.name;
     var id;
+
+    type = type || ctor.name;
 
     if (typeof type != "string")
         throw new Error("couldn't get type: " + type);
@@ -101,13 +103,15 @@ function Store(path) {
     // the class registry
     var typeRegistry = {};
 
-    this.registerType = function(ctor) {
+    this.registerType = function(ctor,type) {
+        // optional type, used for unnamed constructor functions
+        type = type || ctor.name;
         // add class to registry
-        typeRegistry[ctor.name] = ctor;
+        typeRegistry[type] = ctor;
         // install filter, all, and get methods on constructor
-        ctor.filter = partial(this.filter, ctor.name);
-        ctor.all = partial(this.getAll, ctor.name);
-        ctor.get = partial(this.get, ctor.name);
+        ctor.filter = partial(this.filter, type);
+        ctor.all = partial(this.getAll, type);
+        ctor.get = partial(this.get, type);
         ctor.save = partial(this.save);
         ctor.remove = partial(this.remove);
         ctor.store = this;
