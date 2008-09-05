@@ -25,7 +25,6 @@ import org.mozilla.javascript.tools.ToolErrorReporter;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.io.FileNotFoundException;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
