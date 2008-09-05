@@ -46,8 +46,8 @@ function createSkin(resourceOrString, scope) {
         if (part.name === 'extends') {
             var skinPath = part.getParameter(0);
             var skinResource;
-            if (resourceOrString.repository) {
-                skinResource = resourceOrString.repository.getResource(skinPath);
+            if (resourceOrString.parentRepository) {
+                skinResource = resourceOrString.parentRepository.getResource(skinPath);
             }
             if (!skinResource || !skinResource.exists()) {
                 skinResource = scope.getResource(skinPath);
@@ -184,11 +184,10 @@ function Skin(mainSkin, subSkins, parentSkin) {
                        elem[last + suffix].call(elem, macro, self, context) :
                        elem[last + suffix].call(elem, value, macro, self, context);
             } else if (value === undefined && isDefined(elem[last])) {
-                elem = elem[path[length-1]];
-                if (elem instanceof Function) {
-                    return elem(macro, self, context);
+                if (elem[last] instanceof Function) {
+                    return elem[last].call(elem, macro, self, context);
                 } else {
-                    return elem;
+                    return elem[last];
                 }
             }
         }

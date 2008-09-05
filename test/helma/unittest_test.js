@@ -1,4 +1,4 @@
-importFromModule("testing.unittest", "*");
+importFromModule("helma.unittest", "*");
 
 var testCase = new TestCase("testing.unittest");
 
@@ -21,6 +21,13 @@ testCase.testAssertNotEqual = function() {
    assertNotEqual(true, false);
    return;
 };
+
+testCase.testAssertEqualArrays = function() {
+   assertEqualArrays([], []);
+   assertEqualArrays(["one"], ["one"]);
+   assertEqualArrays(["one", "two"], ["one", "two"]);
+   return;
+}
 
 testCase.testAssertNull = function() {
    assertNull(null);

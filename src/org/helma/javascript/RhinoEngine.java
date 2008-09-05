@@ -17,8 +17,10 @@
 package org.helma.javascript;
 
 import org.apache.log4j.Logger;
+import org.helma.repository.FileResource;
 import org.helma.repository.Repository;
 import org.helma.repository.Resource;
+import org.helma.repository.Trackable;
 import org.helma.tools.HelmaConfiguration;
 import org.helma.tools.launcher.HelmaClassLoader;
 import org.helma.util.*;
@@ -41,8 +43,9 @@ public class RhinoEngine {
     HelmaConfiguration                 configuration;
     List<Repository>                   repositories;
     ScriptableObject                   topLevelScope;
-    Map<String, ReloadableScript>      compiledScripts    = new HashMap<String, ReloadableScript>();
-    Map<String, ReloadableScript>      interpretedScripts = new HashMap<String, ReloadableScript>();
+    List<String>                       commandLineArgs;
+    Map<Trackable, ReloadableScript>      compiledScripts    = new HashMap<Trackable, ReloadableScript>();
+    Map<Trackable, ReloadableScript>      interpretedScripts = new HashMap<Trackable, ReloadableScript>();
     Set<ReloadableScript>              sharedScripts      = new HashSet<ReloadableScript>();
     Map<String, Map<String, Function>> callbacks          = new HashMap<String, Map<String,Function>>();
     AppClassLoader                     loader             = new AppClassLoader();
@@ -153,6 +156,44 @@ public class RhinoEngine {
     }
 
     /**
+     * Invoke a script from the command line.
+     * @param scriptName the name of the script
+     * @param scriptArgs an array of command line arguments
+     * @return the return value
+     * @throws IOException an I/O related error occurred
+     * @throws JavaScriptException the script threw an error during
+     *         compilation or execution
+     */
+    public Object runScript(String scriptName, String[] scriptArgs)
+            throws IOException, JavaScriptException {
+        Context cx = contextFactory.enterContext();
+        try {
+        	Object retval;
+            Map<Trackable,ReloadableScript> scripts = cx.getOptimizationLevel() == -1 ?
+                    interpretedScripts : compiledScripts;
+            commandLineArgs = Arrays.asList(scriptArgs);
+            Resource resource = findResource(scriptName, null);
+            if (!resource.exists()) {
+            	resource = new FileResource(new File(scriptName));
+            }
+            if (!resource.exists()) {
+                String moduleName = scriptName.replace('.', File.separatorChar) + ".js";
+                resource = findResource(moduleName, null);
+            }
+            ReloadableScript script = new ReloadableScript(resource, this);
+            scripts.put(resource, script);
+            Scriptable scope = new ModuleScope("__main__", resource, topLevelScope);
+            retval = script.evaluate(scope, cx);
+        	if (retval instanceof Wrapper) {
+        		return ((Wrapper) retval).unwrap();
+        	}
+        	return retval;
+        } finally {
+        	Context.exit();
+        }   	
+    }
+    
+    /**
      * Invoke a javascript function. This enters a JavaScript context, creates
      * a new per-thread scope, calls the function, exits the context and returns
      * the return value of the invocation.
@@ -209,12 +250,13 @@ public class RhinoEngine {
         try {
             Repository repository = repositories.get(0);
             Resource resource = repository.getResource("<shell>");
+            ModuleScope scope = new ModuleScope("<shell>", resource, topLevelScope);
             try {
-                getScript("helma.shell").evaluate(topLevelScope, cx);
+                getScript("helma.shell").evaluate(scope, cx);
             } catch (Exception x) {
                 log.error("Warning: couldn't load module 'helma.shell'", x);
             }
-            return new ModuleScope("<shell>", resource, repository, topLevelScope);
+            return scope;
         } finally {
             Context.exit();
         }
@@ -293,27 +335,26 @@ public class RhinoEngine {
     public ReloadableScript getScript(String moduleName, Repository localPath)
             throws JavaScriptException, IOException {
         Context cx = Context.getCurrentContext();
-        Map<String,ReloadableScript> scripts = cx.getOptimizationLevel() == -1 ?
+        Map<Trackable,ReloadableScript> scripts = cx.getOptimizationLevel() == -1 ?
                 interpretedScripts : compiledScripts;
-        ReloadableScript script = scripts.get(moduleName);
-        if (script == null) {
-            boolean isWildcard = moduleName.endsWith(".*");
-            if (isWildcard) {
-                String repositoryName = moduleName
-                        .substring(0, moduleName.length() - 2)
-                        .replace('.', File.separatorChar);
-                Repository repository = findRepository(repositoryName, localPath);
-                script = new ReloadableScript(repository, this);
-                if (repository.exists()) {
-                    scripts.put(moduleName, script);
-                }
-            } else {
-                String resourceName = moduleName.replace('.', File.separatorChar) + ".js";
-                Resource resource = findResource(resourceName, localPath);
-                script = new ReloadableScript(resource, this);
-                if (resource.exists()) {
-                    scripts.put(moduleName, script);
-                }
+        ReloadableScript script;
+        Trackable source;
+        boolean isWildcard = moduleName.endsWith(".*");
+        if (isWildcard) {
+            String repositoryName = moduleName
+                    .substring(0, moduleName.length() - 2)
+                    .replace('.', File.separatorChar);
+            source = findRepository(repositoryName, localPath);
+        } else {
+            String resourceName = moduleName.replace('.', File.separatorChar) + ".js";
+            source = findResource(resourceName, localPath);
+        }
+        if (scripts.containsKey(source)) {
+            script = scripts.get(source);
+        } else {
+            script = new ReloadableScript(source, this);
+            if (source.exists()) {
+                scripts.put(source, script);
             }
         }
         return script;
@@ -346,6 +387,17 @@ public class RhinoEngine {
         return topLevelScope;
     }
 
+    public List<String> getCommandLineArguments() {
+        if (commandLineArgs == null) {
+            commandLineArgs = Collections.emptyList();
+        }
+        return Collections.unmodifiableList(commandLineArgs);
+    }
+
+    public List<Repository> getRepositories() {
+        return repositories;
+    }
+
     /**
      * Get the repository associated with the scope or one of its prototypes
      *
@@ -368,13 +420,7 @@ public class RhinoEngine {
      * @return the resource
      */
     public Resource getResource(String path) {
-        for (Repository repo: repositories) {
-            Resource res = repo.getResource(path);
-            if (res.exists()) {
-                return res;
-            }
-        }
-        return repositories.get(0).getResource(path);
+        return configuration.getResource(path);
     }
 
     /**
@@ -383,13 +429,7 @@ public class RhinoEngine {
      * @return the resource
      */
     public Repository getRepository(String path) {
-        for (Repository repo: repositories) {
-            Repository repository = repo.getChildRepository(path);
-            if (repository.exists()) {
-                return repository;
-            }
-        }
-        return repositories.get(0).getChildRepository(path);
+        return configuration.getRepository(path);
     }
 
     /**
@@ -399,13 +439,7 @@ public class RhinoEngine {
      * @return a list of all nested child resources
      */
     public List<Resource> getResources(String path) {
-        for (Repository repo: repositories) {
-            Repository repository = repo.getChildRepository(path);
-            if (repository.exists()) {
-                return repo.getAllResources();
-            }
-        }
-        return repositories.get(0).getResources(path);
+        return configuration.getResources(path);
     }
 
     /**

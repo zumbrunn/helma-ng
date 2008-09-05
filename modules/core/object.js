@@ -14,9 +14,6 @@
  * $Date: 2007-12-13 13:21:48 +0100 (Don, 13 Dez 2007) $
  */
 
-// importModule('helma.logging', 'logging');
-// var log = logging.getLog(__name__);
-
 __shared__ = true;
 
 /**
@@ -32,21 +29,50 @@ __shared__ = true;
  */
 Object.prototype.dontEnum = function() {
     var rhino = new JavaImporter(org.mozilla.javascript);
+    var DONTENUM = rhino.ScriptableObject.DONTENUM;
     var length = arguments.length;
     var cx = rhino.Context.currentContext;
     var wrapped = cx.wrapFactory.wrapAsJavaObject(cx, global, this, null);
     for (var i = 0; i < length; i++) {
-        if (!this.hasOwnProperty(arguments[i])) {
+        var prop = arguments[i];
+        if (!this.hasOwnProperty(prop)) {
             continue;
         }
         try {
-            wrapped.setAttributes(arguments[i], rhino.ScriptableObject.DONTENUM);
+            wrapped.setAttributes(prop, DONTENUM);
         } catch (e) {
-            java.lang.System.err.println("Error in dontEnum: " + e);
+            var log = importModule('helma.logging').getLogger(__name__);
+            log.error("Error in dontEnum for property " + prop, e.rhinoException);
         }
     }
     return;
 }
+
+/**
+ * Set the READONLY attribute on one or more properties on this object.
+ * @param One or more property names or index numbers
+ */
+Object.prototype.readOnly = function() {
+    var rhino = new JavaImporter(org.mozilla.javascript);
+    var READONLY = rhino.ScriptableObject.READONLY;
+    var length = arguments.length;
+    var cx = rhino.Context.currentContext;
+    var wrapped = cx.wrapFactory.wrapAsJavaObject(cx, global, this, null);
+    for (var i = 0; i < length; i++) {
+        var prop = arguments[i];
+        if (!this.hasOwnProperty(prop)) {
+            continue;
+        }
+        try {
+            wrapped.setAttributes(prop, READONLY);
+        } catch (e) {
+            var log = importModule('helma.logging').getLogger(__name__);
+            log.error("Error in readOnly for property " + prop, e.rhinoException);
+        }
+    }
+    return;
+}
+
 
 /**
  * copy the properties of an object into

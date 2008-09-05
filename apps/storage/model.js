@@ -1,5 +1,5 @@
 // simple demo model for helma minibase
-importModule('helma.storage', 'db');
+importModule('helma.filestore', 'db');
 
 /**
  * Our model class. The only thing to observe is to return a Storable
@@ -26,22 +26,25 @@ function Book(props) {
         book._id      - the object id - undefined for transient objects,
                         and only settable on transient objects
      */
-    return new db.Storable(this, props);
+    db.makeStorable(this, props);
+    return this;
 }
 
 function Author(props) {
-    return new db.Storable(this, props);
+    db.makeStorable(this, props);
+    return this;
 }
 
 // init store instance and register persistent classes.
 db.store = db.store || new db.Store("db");
+
 /*
  The call to registerType installs the following static
  methods in the constructor:
 
    Book.get(id)  - get a persistent object of this type by id
    Book.all()    - get an array containing all objects of this type
-   Book.filter() - not yet implemented
+   Book.list()   - get filtered, ordered and sliced lists of this type
 */
 db.store.registerType(Book);
 db.store.registerType(Author);

@@ -20,7 +20,6 @@ import jline.Completor;
 import jline.ConsoleReader;
 import org.helma.javascript.ModuleScope;
 import org.helma.javascript.RhinoEngine;
-import org.helma.util.StringUtils;
 import org.mozilla.javascript.*;
 import org.mozilla.javascript.tools.ToolErrorReporter;
 
@@ -38,26 +37,15 @@ import java.util.regex.Pattern;
  */
 public class HelmaShell {
 
-    static Scriptable scope;
+	RhinoEngine engine;
+    Scriptable scope;
 
-    public static void main(String[] args) throws Exception {
-        String modulePath = null;
-        if (args.length > 0) {
-            if ("--help".equals(args[0]) || "-h".equals(args[0])) {
-                printUsage();
-                return;
-            }
-            modulePath = StringUtils.join(args, ",");
-        }
-        HelmaConfiguration config = new HelmaConfiguration(null, modulePath);
-        RhinoEngine engine = new RhinoEngine(config);
-        try {
-            engine.invoke(config.getMainModule("main"),
-                    "main", RhinoEngine.EMPTY_ARGS);
-        } catch (FileNotFoundException fnf) {
-            // don't complain if main module does not exist
-        }
-        scope = engine.getShellScope();
+    public HelmaShell(RhinoEngine engine) throws Exception {
+    	this.engine = engine;
+    	this.scope = engine.getShellScope();
+    }
+    
+    public void run() throws IOException {
         Scriptable threadScope = null;
         ConsoleReader reader = new ConsoleReader();
         reader.setBellEnabled(false);
@@ -110,12 +98,7 @@ public class HelmaShell {
         System.exit(0);
     }
 
-    public static void printUsage() {
-        System.out.println("Usage:");
-        System.out.println("    java -jar shell.jar [MAINFILE|SCRIPTDIR] [SCRIPTDIR] ...");
-    }    
-
-    static class JSCompletor implements Completor {
+    class JSCompletor implements Completor {
 
         Pattern variables = Pattern.compile(
                 "(^|\\s|[^\\w\\.'\"])([\\w\\.]+)$");
