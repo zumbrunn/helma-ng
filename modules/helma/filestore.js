@@ -11,8 +11,9 @@ var __shared__ = true;
  *
  * @param obj the raw javascript object to wrap
  * @param properties the persistent object properties (optional)
+ * @param type the name of the constructor (optional, for use with unnamed constructor functions)
  */
-function makeStorable(obj, properties) {
+function makeStorable(obj, properties, type) {
 
     if (!(obj instanceof Object) || !(obj.constructor instanceof Function))
         throw new Error("object must be an object, was: " + properties);
@@ -24,9 +25,10 @@ function makeStorable(obj, properties) {
         throw new Error("properties must be an object, was: " + properties);
 
     var ctor = obj.constructor;
-    var type = ctor.name;
     var id;
-
+    
+    type = type || ctor.name;
+    
     if (typeof type != "string")
         throw new Error("couldn't get type: " + type);
 
@@ -114,19 +116,22 @@ function Store(path) {
     // map of type to current id tip
     var idMap = {};
 
-    this.registerType = function(ctor) {
+    this.registerType = function(ctor,type) {
         if (typeof ctor != "function") {
            throw new Error("registerType() called with non-function argument: " + ctor);
         }
-        if (typeof ctor.name != "string") {
-           throw new Error("constructor must not be an anonymous function");
+        if (typeof ctor.name != "string" && (!type || typeof type != "string")) {
+           throw new Error("constructor must not be an anonymous function or type must be specified");
         }
+        // optional type, used for anonymous constructor functions
+        type = type || ctor.name;
+        
         // add class to registry
-        typeRegistry[ctor.name] = ctor;
+        typeRegistry[type] = ctor;
         // install filter, all, and get methods on constructor
-        ctor.list = partial(list, ctor.name);
-        ctor.all = partial(getAll, ctor.name);
-        ctor.get = partial(get, ctor.name);
+        ctor.list = partial(list, type);
+        ctor.all = partial(getAll, type);
+        ctor.get = partial(get, type);
         ctor.save = partial(save);
         ctor.remove = partial(remove);
         ctor.store = this;
