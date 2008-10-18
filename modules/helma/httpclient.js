@@ -23,10 +23,10 @@
  */
 
 // take care of any dependencies
-loadModule('core.object');
-loadModule('core.date');
-loadModule('core.string');
+require('core.date');
+require('core.string');
 
+var __export__ = ["Client", "Cookie"];
 
 /**
  * Creates a new instance of helma.http.Client
@@ -588,9 +588,6 @@ function Client() {
         return "[Helma Http Client]";
     };
 
-    /* for (var i in this)
-        this.dontEnum(i); */
-
     return this;
 };
 
@@ -804,9 +801,3 @@ Cookie.prototype.toString = function() {
     return "[Cookie " + this.name + " " + this.value + "]";
 };
 
-for (var i in this)
-    this.dontEnum(i);
-for (var i in Client.prototype)
-    Client.prototype.dontEnum(i);
-for (var i in Cookie.prototype)
-    Cookie.prototype.dontEnum(i);

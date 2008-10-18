@@ -14,7 +14,7 @@
  * $Date: 2007-12-13 13:21:48 +0100 (Don, 13 Dez 2007) $
  */
 
-loadModule('core.object');
+var __export__ = ["File"];
 
 /**
  * @fileoverview Default properties and methods of the File prototype.
@@ -27,7 +27,8 @@ loadModule('core.object');
  * Constructor for File objects, providing read and 
  * write access to the file system.
  * @class This class represents a local file or directory 
- * @param {String} path as String, can be either absolute or relative to the helma home directory
+ * @param {String|java.io.File} path as String, can be either absolute or relative
+ *        to the helma home directory
  * @constructor
  */
 function File(path) {
@@ -49,12 +50,18 @@ function File(path) {
 
    var file;
    try {
-      // immediately convert to absolute path - java.io.File is 
-      // incredibly stupid when dealing with relative file names
-      if (arguments.length > 1)
-         file = new JFile(path, arguments[1]).getAbsoluteFile();
-      else
-         file = new JFile(path).getAbsoluteFile();
+      if (arguments.length > 1) {
+         file = new JFile(path, arguments[1]);
+      } else if (!(path instanceof JFile)) {
+         file = new JFile(path);
+      } else {
+         file = path;
+      }
+      if (!file.isAbsolute()) {
+         // immediately convert to absolute path - java.io.File is
+         // incredibly stupid when dealing with relative file names
+         file = file.getAbsoluteFile();
+      }
    } catch (e) {
       throw(e);
    }
@@ -62,8 +69,6 @@ function File(path) {
    var readerWriter;
    var atEOF = false;
    var lastLine = null;
-
-   this.lastError = null;
 
    /** @ignore */
    this.toString = function() {
@@ -183,14 +188,14 @@ function File(path) {
       if (atEOF) {
          throw new EOFException();
       }
+      var line;
       if (lastLine != null) {
-         var line = lastLine;
+         line = lastLine;
          lastLine = null;
          return line;
       }
-      var reader = readerWriter;
       // Here lastLine is null, return a new line
-      var line = readerWriter.readLine();
+      line = readerWriter.readLine();
       if (line == null) {
          atEOF = true;
          throw new EOFException();
@@ -302,18 +307,20 @@ function File(path) {
     * @type Array
     */
    this.listFiles = function(pattern) {
-      if (self.isOpened())
+      if (self.isOpened() || !file.isDirectory())
          return null;
-      if (!file.isDirectory())
-         return null;
+      // map function to convert java.io.Files to helma Files
+      function convert(jfile) {
+         return new File(jfile);
+      }
       if (pattern) {
          return file.listFiles(new FilenameFilter({
             accept: function(dir, name) {
                return pattern.test(name);
             }
-         }));
+         })).map(convert);
       }
-      return file.listFiles();
+      return file.listFiles().map(convert);
    }
 
    /**
@@ -346,6 +353,8 @@ function File(path) {
       }
       readerWriter.close();
       readerWriter = null;
+      atEOF = false;
+      lastLine = null;
       return true;
    };
 
@@ -361,34 +370,6 @@ function File(path) {
    this.getPath = function() {
       var path = file.getPath();
       return (path == null ? "" : path);
-   };
-
-   /**
-    * Contains the last error that occured, if any.
-    * @returns String
-    * @type String
-    * @see #clearError
-    */
-   this.error = function() {
-      if (this.lastError == null) {
-         return "";
-      } else {
-         var exceptionName = this.lastError.getClass().getName();
-         var l = exceptionName.lastIndexOf(".");
-         if (l > 0)
-            exceptionName = exceptionName.substring(l + 1);
-         return exceptionName + ": " + this.lastError.getMessage();
-      }
-   };
-
-   /**
-    * Clears any error message that may otherwise be returned by the error method.
-    * 
-    * @see #error
-    */
-   this.clearError = function() {
-      this.lastError = null;
-      return;
    };
 
    /**
@@ -507,7 +488,7 @@ function File(path) {
       if (self.isOpened())
          return false;
       // don't do anything if file exists or use multi directory version
-      return (file.exists() || file.mkdirs());   
+      return (file.isDirectory() || file.mkdirs());
    };
 
    /**
@@ -632,10 +613,11 @@ function File(path) {
    this.listRecursive = function(pattern) {
       if (!file.isDirectory())
          return false;
+      var result;
       if (!pattern || pattern.test(file.getName()))
-         var result = [file.getAbsolutePath()];
+         result = [file.getAbsolutePath()];
       else
-         var result = [];
+         result = [];
       var arr = file.list();
       for (var i=0; i<arr.length; i++) {
          var f = new File(file, arr[i]);
@@ -648,27 +630,39 @@ function File(path) {
    }
 
    /**
-    * Makes a copy of a file over partitions.
+    * Makes a copy of a file or directory, possibly over filesystem borders.
     * 
-    * @param {String|helma.File} dest as a File object or the String of full path of the new file
+    * @param {String|helma.File} dest as a File object or the String of
+    *        full path of the new file
     */
    this.hardCopy = function(dest) {
-      var inStream = new java.io.BufferedInputStream(
-         new java.io.FileInputStream(file)
-      );
-      var outStream = new java.io.BufferedOutputStream(
-         new java.io.FileOutputStream(dest)
-      );
-      var buffer = java.lang.reflect.Array.newInstance(
-         java.lang.Byte.TYPE, 4096
-      );
-      var bytesRead = 0;
-      while ((bytesRead = inStream.read(buffer, 0, buffer.length)) != -1) {
-         outStream.write(buffer, 0, bytesRead);
+      if (this.isDirectory()) {
+         if (typeof dest == "string") {
+            dest = new File(dest);
+         }
+         if (!dest.exists() && !dest.makeDirectory()) {
+            throw new Error("Could not create directory " + dest);
+         }
+         for each (var f in this.listFiles()) {
+            f.hardCopy(new File(dest, f.getName()));
+         }
+      } else {
+         var inStream = new java.io.BufferedInputStream(
+            new java.io.FileInputStream(file)
+         );
+         var outStream = new java.io.BufferedOutputStream(
+            new java.io.FileOutputStream(dest)
+         );
+         var buffer = java.lang.reflect.Array.newInstance(
+            java.lang.Byte.TYPE, 4096
+         );
+         var bytesRead = 0;
+         while ((bytesRead = inStream.read(buffer, 0, buffer.length)) != -1) {
+            outStream.write(buffer, 0, bytesRead);
+         }
+         inStream.close();
+         outStream.close();
       }
-      outStream.flush();
-      inStream.close();
-      outStream.close();
       return true;
    }
 
@@ -722,8 +716,35 @@ function File(path) {
       return body.toByteArray();
    };
 
-   for (var i in this)
-      this.dontEnum(i);
+   /**
+    * Define iterator to loop through the lines of the file for ordinary files,
+    * or the names of contained files for directories.
+    *
+    *   for each (var line in file) ...
+    *
+    *   for each (var filename in dir) ...
+    */
+   this.__iterator__ = function() {
+      if (this.isDirectory()) {
+         var files = this.list();
+         for (var i = 0; i < files.length; i++) {
+             yield files[i];
+         }
+      } else if (this.exists()) {
+         if (this.open()) {
+            try {
+               while(true) {
+                  yield this.readln();
+               }
+            } catch (e if e instanceof java.io.EOFException) {
+               throw StopIteration;
+            } finally {
+               this.close();
+            }
+         }
+      }
+      throw StopIteration;
+   }
 
    return this;
 }
@@ -748,7 +769,3 @@ File.createTempFile = function(prefix, suffix) {
 }
 
 
-for (var i in File)
-   if (i != "prototype") File.dontEnum(i);
-for (var i in File.prototype)
-   File.prototype.dontEnum(i);

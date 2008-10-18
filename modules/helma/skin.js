@@ -1,14 +1,23 @@
 /*global getResource importModule parseSkin */
 
-loadModule('core.string');
-loadModule('core.object');
-var filters = loadModule('helma.filters');
-var log = loadModule('helma.logging').getLogger(__name__);
+require('core.string');
+require('core.object');
+var filters = require('helma.filters');
+var log = require('helma.logging').getLogger(__name__);
+var system = require('helma.system');
+system.addHostObject(org.helma.template.MacroTag);
+
+var __export__ = [
+    "render",
+    "createSkin",
+    "Skin"
+];
 
 /**
  * Parse a skin from a resource and render it using the given context.
- * @param skinOrPath
- * @param context
+ * @param skinOrPath a skin object or a file name
+ * @param context the skin render context
+ * @param scope optional scope object for relative resource lookup
  */
 function render(skinOrPath, context, scope) {
     scope = scope || this;
@@ -20,15 +29,15 @@ function render(skinOrPath, context, scope) {
         if (skinOrPath.indexOf('#') > -1) {
             [skinOrPath, subskin] = skinOrPath.split('#');
         }
-        var resource = this.getResource(skinOrPath);
-        skin = createSkin(resource, this);
+        var resource = scope.getResource(skinOrPath);
+        skin = createSkin(resource, scope);
         if (subskin) {
             skin = skin.getSubskin(subskin);
         }
     } else {
         throw Error("Unknown skin object: " + skinOrPath);
     }
-    skin.render(context);
+    return skin.render(context);
 }
 
 /**
@@ -79,23 +88,23 @@ function Skin(mainSkin, subSkins, parentSkin) {
 
     var self = this;
 
-    this.render = function(context) {
+    this.render = function render(context) {
         if (mainSkin.length === 0 && parentSkin) {
-            renderInternal(parentSkin.getSkinParts(), context);
+            return renderInternal(parentSkin.getSkinParts(), context);
         } else {
-            renderInternal(mainSkin, context);
+            return renderInternal(mainSkin, context);
         }
     };
 
-    this.renderSubskin = function(skinName, context) {
+    this.renderSubskin = function renderSubskin(skinName, context) {
         if (!subSkins[skinName] && parentSkin) {
-            renderInternal(parentSkin.getSkinParts(skinName), context);
+            return renderInternal(parentSkin.getSkinParts(skinName), context);
         } else {
-            renderInternal(subSkins[skinName], context);
+            return renderInternal(subSkins[skinName], context);
         }
     };
 
-    this.getSubskin = function(skinName) {
+    this.getSubskin = function getSubskin(skinName) {
         if (subSkins[skinName]) {
             return new Skin(subSkins[skinName], subSkins, parentSkin);
         } else {
@@ -103,7 +112,7 @@ function Skin(mainSkin, subSkins, parentSkin) {
         }
     };
 
-    this.getSkinParts = function(skinName) {
+    this.getSkinParts = function getSkinParts(skinName) {
         var parts = skinName ? subSkins[skinName] : mainSkin;
         if (!parts || (!skinName && parts.length === 0)) {
             return parentSkin ? parentSkin.getSkinParts(skinName) : null;
@@ -111,52 +120,38 @@ function Skin(mainSkin, subSkins, parentSkin) {
         return parts;
     };
 
-    var renderInternal = function(parts, context) {
-        for (var i in parts) {
-            var part = parts[i];
-            if (part instanceof MacroTag) {
-                if (part.name) {
-                    evaluateMacro(part, context);
-                }
-            } else {
-                res.write(part);
-            }
-        }
+    var renderInternal = function renderInternal(parts, context) {
+        // extend context by globally provided filters. user-provided filters
+        // override globally defined ones
+        context = Object.merge(context, filters);
+        return [renderPart(part, context) for each (part in parts)].join('');
     };
 
-    var evaluateMacro = function(macro, context) {
-        var length = res.buffer.length;
-        var value = evaluateExpression(macro, context, '_macro');
-        var visibleValue = isVisible(value);
-        var wroteSomething = res.buffer.length > length;
+    var renderPart = function renderPart(part, context) {
+        return part instanceof MacroTag && part.name ?
+                evaluateMacro(part, context) :
+                part;
+    };
 
-            // check if macro has a filter, if so extra work ahead
-        var filter = macro.filter;
-        while (filter) {
-            // make sure value is not undefined,
-            // otherwise evaluateExpression() might become confused
-            if (!visibleValue) {
+    var evaluateMacro = function evaluateMacro(macro, context) {
+        // evaluate the macro itself
+        var value = evaluateExpression(macro, context, '_macro');
+        if (value instanceof Array) {
+            value = value.join('');
+        }
+        // traverse the linked list of filters
+        for (var filter = macro.filter; filter; filter = filter.filter) {
+            // make sure value is not undefined, otherwise evaluateExpression()
+            // might become confused
+            if (!isVisible(value)) {
                 value = "";
             }
-            if (wroteSomething) {
-                var written = res.buffer.truncate(length);
-                if (visibleValue) {
-                    value = written + value;
-                } else {
-                    value = written;
-                }
-            }
-            value = evaluateExpression(filter, filters, '_filter', value);
-            visibleValue = isVisible(value);
-            wroteSomething = res.buffer.length > length;
-            filter = filter.filter;
+            value = evaluateExpression(filter, context, '_filter', value);
         }
-        if (visibleValue) {
-            res.write(value);
-        }
+        return value
     };
 
-    var evaluateExpression = function(macro, context, suffix, value) {
+    var evaluateExpression = function evaluateExpression(macro, context, suffix, value) {
         log.debug('evaluating expression: ' + macro);
         if (builtins[macro.name]) {
             return builtins[macro.name](macro, context);
@@ -188,17 +183,17 @@ function Skin(mainSkin, subSkins, parentSkin) {
         return value;
     };
 
-    var isDefined = function(elem) {
+    var isDefined = function isDefined(elem) {
         return elem !== undefined && elem !== null;
     }
 
-    var isVisible = function(elem) {
+    var isVisible = function isVisible(elem) {
         return elem !== undefined && elem !== null && elem !== '';
     }
 
     // builtin macro handlers
     var builtins = {
-        render: function(macro, context) {
+        render: function builtinsRender(macro, context) {
             var skin = getEvaluatedParameter(macro.getParameter(0), context, 'render:skin');
             var bind = getEvaluatedParameter(macro.getParameter('bind'), context, 'render:bind');
             var on = getEvaluatedParameter(macro.getParameter('on'), context, 'render:on');
@@ -210,21 +205,23 @@ function Skin(mainSkin, subSkins, parentSkin) {
                 }
             }
             if (on) {
+                var result = [];
                 var subContext = context.clone();
                 for (var [key, value] in on) {
                     log.debug("key: " + value);
                     subContext[('key')] = key;
                     subContext[(as || 'value')] = value;
-                    self.renderSubskin(skin, subContext);
+                    result.push(self.renderSubskin(skin, subContext));
                 }
+                return result.join('');
             } else {
-                self.renderSubskin(skin, subContext);
+                return self.renderSubskin(skin, subContext);
             }
         }
 
     };
 
-    var getEvaluatedParameter = function(value, context, logprefix) {
+    var getEvaluatedParameter = function getEvaluatedParameter(value, context, logprefix) {
         log.debug(logprefix + ': macro called with value: ' + value);
         if (value instanceof MacroTag) {
             value = evaluateExpression(value, context, '_macro');
@@ -233,7 +230,7 @@ function Skin(mainSkin, subSkins, parentSkin) {
         return value;
     }
 
-    this.toString = function() {
+    this.toString = function toString() {
         return "[Skin Object]";
     };
 

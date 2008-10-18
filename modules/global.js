@@ -2,7 +2,7 @@
  * Helma NG global functions
  */
 
-const global = this;
+__defineProperty__("global", this, true, true, true);
 
 (function() {
 
@@ -11,72 +11,87 @@ const global = this;
      * @param moduleName the module name such as 'core.object'
      * @return {Object} the module scope
      */
-    this.loadModule = function(moduleName) {
+    this.__defineProperty__("require", function(moduleName) {
         return getRhinoEngine().loadModule(getRhinoContext(), moduleName, this);
-    };
+    }, true, true, true);
 
     /**
      * Load a module and include all its properties in the calling scope.
      * @param moduleName the module name such as 'core.object'
      */
-    this.includeModule = function(moduleName) {
-        var module = this.loadModule(moduleName);
-        for (var [key, value] in module) {
-            /* if (value && value.__parent__ && value.__parent__ != module) {
-                // only copy values that were defined in the module
-                // FIXME we really need explicit exports here!
-                continue;
-            } */
-            this[key] = value;
+    this.__defineProperty__("include", function(moduleName) {
+        var module = this.require(moduleName);
+        var exported = module.__export__;
+        if (!exported) {
+            throw ReferenceError("Property __export__ is not defined on module " + moduleName);
+        } else if (!(exported instanceof Array)) {
+            throw TypeError("Property __export__ is not an array in module " + moduleName);
         }
-    };
+        for each (var key in exported) {
+            this[key] = module[key];
+        }
+    }, true, true, true);
 
     /**
      * Get a resource from the app's module search path.
      * @param resourceName
      */
-    this.getResource = function(resourceName) {
+    this.__defineProperty__("getResource", function(resourceName) {
         var engine = getRhinoEngine();
         return engine.findResource(resourceName, engine.getParentRepository(this));
-    };
+    }, true, true, true);
 
     /**
      * Add a java resource to our classpath if it isn't already contained.
      * @param resourcePath the resource path
      */
-    this.addToClasspath = function(resourcePath) {
+    this.__defineProperty__("addToClasspath", function(resourcePath) {
         var resource = this.getResource(resourcePath);
         getRhinoEngine().addToClasspath(resource);
-    };
+    }, true, true, true);
 
     /**
      * Get all resources with the given path prefix in the app's module search path
      * @param resourcePath
      * @param nested
      */
-    this.getResources = function(resourcePath, nested) {
+    this.__defineProperty__("getResources", function(resourcePath, nested) {
         var engine = getRhinoEngine();
         return new ScriptableList(engine.getResources(resourcePath, !!nested));
-    };
+    }, true, true, true);
 
     /**
      * Parse a skin resource and pass its tokens to the supplied function.
      * @param resourceOrString a skin resource or string
      * @param fn a function to consume the skin tokens
      */
-    this.parseSkin = function(resourceOrString, fn) {
-        var {SkinParser, SkinRenderer} = org.helma.template;
+    this.__defineProperty__("parseSkin", function(resourceOrString, fn) {
         var engine = getRhinoEngine();
-        var parser = new SkinParser(new SkinRenderer({
+        var parser = new org.helma.template.SkinParser({
             renderText: function(text) {
                 fn(text);
             },
             renderMacro: function(macro) {
                 fn(engine.wrapArgument(macro, {}));
             }
-        }));
+        });
         parser.parse(resourceOrString);
-    };
+    }, true, true, true);
+
+    /**
+     * Basic print function compatible with other JavaScript implementations.
+     */
+    this.__defineProperty__("print", function() {
+        for (var i = 0; i < arguments.length; i++) {
+            out.print(String(arguments[i]));
+            if (i < arguments.length) {
+                out.print(' ');
+            }
+        }
+        out.println();
+    }, true, true, true);
+
+    var out = java.lang.System.out;
 
     /**
      * Get the org.mozilla.javascript.Context associated with the current thread.
@@ -91,75 +106,6 @@ const global = this;
      */
     var getRhinoEngine = function getRhinoEngine() {
         return getRhinoContext().getThreadLocal("engine");
-    };
-
-
-    /*
-     * Support for defining thread-local variables in the global scope.
-     */
-    var threadLocal = new JavaAdapter(java.lang.ThreadLocal, {
-        initialValue: function() {
-            return {};
-        }
-    });
-
-    /**
-     * Define a thread-local variable for the current thread/request
-     * @param name the name of the thread-local variable
-     * @param value the value of the thread-local variable
-     */
-    this.putThreadLocal = function(name, value) {
-        getThreadScope()[name] = value;
-    };
-
-    /**
-     * Get a thread-local variable, or the thread-local scope if called
-     * without argument.
-     * @param name the name of the thread-local variable, or undefined to
-     *             retrieve the thread-local scope itself
-     */
-    this.getThreadLocal = function(name) {
-        if (name == undefined) {
-            return getThreadScope();
-        } else {
-            return getThreadScope()[name];
-        }
-    }
-
-    const threadScopeKey = "threadScope";
-
-    var getThreadScope = function() {
-        var cx = getRhinoContext();
-        var threadScope = cx.getThreadLocal(threadScopeKey);
-        if (!threadScope) {
-            threadScope = {};
-            cx.putThreadLocal(threadScopeKey, threadScope);
-        }
-        return threadScope;
-    };
-
-    /*
-     * Shortcut for accessing thread-local variables
-     * as properties of the global scope
-     */
-    this.__get__ = function(name) {
-        var threadScope = getThreadScope();
-        if (name in threadScope) {
-            return threadScope[name];
-        } else {
-            return this[name];
-        }
-    };
-
-    this.__has__ = function(name) {
-        return name in this || name in getThreadLocal();
-    };
-
-    /*
-     * Do not enumerate any properties of the global scope, ever.
-     */
-    this.__getIds__ = function() {
-        return [];
     };
 
 })(global);

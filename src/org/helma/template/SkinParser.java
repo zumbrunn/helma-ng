@@ -24,16 +24,10 @@ import java.util.*;
 /**
  * Scanner for Helma templates/skins.
  */
-public class SkinParser {
+public abstract class SkinParser {
 
-    SkinRenderer renderer;
     LineNumberReader reader;
     StringBuffer buffer = new StringBuffer();
-
-    public SkinParser(SkinRenderer renderer) {
-        this.renderer = renderer;
-    }
-
 
     public void parse(Resource res) throws IOException, UnbalancedTagException {
         parse(new InputStreamReader(res.getInputStream()));
@@ -44,36 +38,52 @@ public class SkinParser {
     }
 
     public void parse(Reader r) throws IOException, UnbalancedTagException {
-        if (r instanceof LineNumberReader) {
-            reader = (LineNumberReader) r;
-        } else {
-            reader = new LineNumberReader(r);
-        }
-        int c;
-        while ((c = reader.read()) > 0) {
-            switch (c) {
-                case '<':
-                    reader.mark(1);
-                    if (reader.read() == '%') {
-                        if (buffer.length() > 0) {
-                            renderer.renderText(buffer.toString());
-                            buffer.setLength(0);
-                        }
-                        renderer.renderMacro(readMacro(reader));
-                    } else {
-                        buffer.append((char) c);
-                        reader.reset();
-                    }
-                    break;
-                default:
-                    buffer.append((char) c);
-                    break;
+        try {
+            if (r instanceof LineNumberReader) {
+                reader = (LineNumberReader) r;
+            } else {
+                reader = new LineNumberReader(r);
             }
-        }
-        if (buffer.length() > 0) {
-            renderer.renderText(buffer.toString());
+            int c;
+            while ((c = reader.read()) > 0) {
+                switch (c) {
+                    case '<':
+                        reader.mark(1);
+                        if (reader.read() == '%') {
+                            if (buffer.length() > 0) {
+                                renderText(buffer.toString());
+                                buffer.setLength(0);
+                            }
+                            renderMacro(readMacro(reader));
+                        } else {
+                            buffer.append((char) c);
+                            reader.reset();
+                        }
+                        break;
+                    default:
+                        buffer.append((char) c);
+                        break;
+                }
+            }
+            if (buffer.length() > 0) {
+                renderText(buffer.toString());
+            }
+        } finally {
+            r.close();
         }
     }
+
+    /**
+     * Called when a piece of static text has been parsed.
+     * @param text the text fragement
+     */
+    protected abstract void renderText(String text);
+
+    /**
+     * Called when a macro has been parsed.
+     * @param macro the macro
+     */
+    protected abstract void renderMacro(MacroTag macro);
 
     protected MacroTag readMacro(LineNumberReader reader) throws IOException, UnbalancedTagException {
         boolean escape = false;
@@ -97,7 +107,7 @@ public class SkinParser {
                         reader.mark(1);
                         if (reader.read() == '%') {
                             if (buffer.length() > 0) {
-                                renderer.renderText(buffer.toString());
+                                renderText(buffer.toString());
                                 buffer.setLength(0);
                             }
                             list.add(readMacro(reader));

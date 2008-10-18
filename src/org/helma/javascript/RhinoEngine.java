@@ -45,13 +45,15 @@ public class RhinoEngine {
     List<Repository>                   repositories;
     ScriptableObject                   topLevelScope;
     List<String>                       commandLineArgs;
-    Map<Trackable, ReloadableScript>      compiledScripts    = new HashMap<Trackable, ReloadableScript>();
-    Map<Trackable, ReloadableScript>      interpretedScripts = new HashMap<Trackable, ReloadableScript>();
-    Set<ReloadableScript>              sharedScripts      = new HashSet<ReloadableScript>();
+    Map<Trackable, ReloadableScript>   compiledScripts    = new HashMap<Trackable, ReloadableScript>();
+    Map<Trackable, ReloadableScript>   interpretedScripts = new HashMap<Trackable, ReloadableScript>();
     Map<String, Map<String, Function>> callbacks          = new HashMap<String, Map<String,Function>>();
     AppClassLoader                     loader             = new AppClassLoader();
     HelmaWrapFactory                   wrapFactory        = new HelmaWrapFactory();
-    HelmaContextFactory                contextFactory     = new HelmaContextFactory(this);
+    Map<String, ExtendedJavaClass>     javaWrappers       = new HashMap<String, ExtendedJavaClass>();
+    Set<Class>                         hostClasses        = new HashSet<Class>();
+
+    HelmaContextFactory                contextFactory     = null;
     ModuleScope                        mainScope          = null;
 
     public static final Object[]       EMPTY_ARGS         = new Object[0];
@@ -61,11 +63,12 @@ public class RhinoEngine {
     /**
      * Create a RhinoEngine which loads scripts from directory <code>dir</code>
      * and defines the given classes as native host objects.
-     * @param configuration the configuration used to initialize the engine.
+     * @param config the configuration used to initialize the engine.
      */
-    public RhinoEngine(HelmaConfiguration configuration) {
-        this.configuration = configuration;
-        this.repositories = configuration.getRepositories();
+    public RhinoEngine(HelmaConfiguration config) {
+        this.configuration = config;
+        contextFactory = new HelmaContextFactory(this, config);
+        this.repositories = config.getRepositories();
         if (repositories.isEmpty()) {
             throw new IllegalArgumentException("Empty repository list");
         }
@@ -73,21 +76,18 @@ public class RhinoEngine {
         Context cx = contextFactory.enterContext();
         try {
             topLevelScope = cx.initStandardObjects();
-            Class[] classes = configuration.getHostClasses();
+            Class[] classes = config.getHostClasses();
             if (classes != null) {
                 // for (int i=0; i<classes.length; i++) {
                 for (Class clazz: classes) {
                     defineHostClass(clazz);
                 }
             }
-            // ImporterTopLevel.init(cx, topLevelScope, false);
-            /* GlobalFunctions.init(topLevelScope); */
             ScriptableList.init(topLevelScope);
             ScriptableMap.init(topLevelScope);
-            /* JSAdapter.init(cx, topLevelScope, false); */
             ScriptableObject.defineProperty(topLevelScope, "__name__", "global",
                     ScriptableObject.DONTENUM);
-            getScript("global").evaluate(topLevelScope, cx);
+            evaluate(cx, getScript("global"), topLevelScope);
             // topLevelScope.sealObject();
         } catch (Exception x) {
             throw new IllegalArgumentException("Error initializing engine", x);
@@ -108,7 +108,12 @@ public class RhinoEngine {
      */
     public void defineHostClass(Class clazz)
             throws InvocationTargetException, InstantiationException, IllegalAccessException {
-        ScriptableObject.defineClass(topLevelScope, clazz);
+        synchronized (clazz) {
+            if (!hostClasses.contains(clazz)) {
+               hostClasses.add(clazz);
+               ScriptableObject.defineClass(topLevelScope, clazz);
+            }
+        }
     }
 
     /**
@@ -176,16 +181,19 @@ public class RhinoEngine {
             commandLineArgs = Arrays.asList(scriptArgs);
             Resource resource = findResource(scriptName, null);
             if (!resource.exists()) {
-            	resource = new FileResource(new File(scriptName));
+                resource = new FileResource(new File(scriptName));
             }
             if (!resource.exists()) {
                 String moduleName = scriptName.replace('.', File.separatorChar) + ".js";
                 resource = findResource(moduleName, null);
             }
+            if (resource instanceof FileResource) {
+                ((FileResource) resource).setStripShebang(true);
+            }
             ReloadableScript script = new ReloadableScript(resource, this);
             scripts.put(resource, script);
             mainScope = new ModuleScope("__main__", resource, topLevelScope);
-            retval = script.evaluate(mainScope, cx);
+            retval = evaluate(cx, script, mainScope);
         	if (retval instanceof Wrapper) {
         		return ((Wrapper) retval).unwrap();
         	}
@@ -255,7 +263,7 @@ public class RhinoEngine {
             Scriptable parentScope = mainScope != null ? mainScope : topLevelScope;
             ModuleScope scope = new ModuleScope("<shell>", resource, parentScope);
             try {
-                getScript("helma.shell").evaluate(scope, cx);
+                evaluate(cx, getScript("helma.shell"), scope);
             } catch (Exception x) {
                 log.error("Warning: couldn't load module 'helma.shell'", x);
             }
@@ -347,6 +355,23 @@ public class RhinoEngine {
         return script;
     }
 
+    public Object evaluate(Context cx, ReloadableScript script, Scriptable scope)
+            throws IOException {
+        Object result;
+        ReloadableScript parent = getCurrentScript(cx);
+        try {
+            setCurrentScript(cx, script);
+            result = script.evaluate(scope, cx);
+        } finally {
+            if (parent != null) {
+                parent.addDependency(script);
+            }
+            setCurrentScript(cx, parent);
+        }
+        return result;
+
+    }
+
     /**
      * Load a Javascript module into a module scope. This checks if the module has already
      * been loaded in the current context and if so returns the existing module scope.
@@ -360,13 +385,26 @@ public class RhinoEngine {
             throws IOException {
         Repository local = getParentRepository(loadingScope);
         ReloadableScript script = getScript(moduleName, local);
-        Scriptable module =  script.load(topLevelScope, moduleName, cx);
-        if (script.isShared()) {
-            sharedScripts.add(script);
-        } else {
-            sharedScripts.remove(script);
+        Scriptable module;
+        ReloadableScript parent = getCurrentScript(cx);
+        try {
+            setCurrentScript(cx, script);
+            module =  script.load(topLevelScope, moduleName, cx);
+        } finally {
+            if (parent != null) {
+                parent.addDependency(script);
+            }
+            setCurrentScript(cx, parent);
         }
         return module;
+    }
+
+    private ReloadableScript getCurrentScript(Context cx) {
+        return (ReloadableScript) cx.getThreadLocal("current_script");
+    }
+
+    private void setCurrentScript(Context cx, ReloadableScript script) {
+        cx.putThreadLocal("current_script", script);
     }
 
 
@@ -473,17 +511,22 @@ public class RhinoEngine {
     }
 
     public ExtendedJavaClass getExtendedClass(Class type) {
-        ExtendedJavaClass wrapper =  wrapFactory.javaWrappers.get(type.getName());
-        if (wrapper == null) {
+        ExtendedJavaClass wrapper = javaWrappers.get(type.getName());
+        if (wrapper == null || wrapper == ExtendedJavaClass.NONE) {
             wrapper = new ExtendedJavaClass(topLevelScope, type);
-            wrapFactory.javaWrappers.put(type.getName(), wrapper);
+            javaWrappers.put(type.getName(), wrapper);
+            Iterator<Map.Entry<String,ExtendedJavaClass>> it =
+                    javaWrappers.entrySet().iterator();
+            while (it.hasNext()) {
+                if (it.next().getValue() == ExtendedJavaClass.NONE) {
+                    it.remove();
+                }
+            }
         }
         return wrapper;
     }
 
     class HelmaWrapFactory extends WrapFactory {
-
-        Map<String, ExtendedJavaClass> javaWrappers = new HashMap<String, ExtendedJavaClass>();
 
         public HelmaWrapFactory() {
             // disable java primitive wrapping, it's just annoying.
@@ -561,7 +604,7 @@ public class RhinoEngine {
         protected ExtendedJavaClass getExtendedClass(Class clazz) {
             if (clazz.isInterface()) {
                 // can't deal with interfaces - panic
-                throw new IllegalArgumentException();
+                throw new IllegalArgumentException("Can't extend interface " + clazz.getName());
             }
             // How class name to prototype name lookup works:
             // If an object is not found by its direct class name, a cache entry is added

@@ -23,56 +23,6 @@ __shared__ = true;
  * application, for example by calling app.addRepository('modules/core/Object.js')
  */
 
-/**
- * Set the DONTENUM attribute on one or more properties on this object.
- * @param One or more property names or index numbers
- */
-Object.prototype.dontEnum = function() {
-    var rhino = new JavaImporter(org.mozilla.javascript);
-    var DONTENUM = rhino.ScriptableObject.DONTENUM;
-    var length = arguments.length;
-    var cx = rhino.Context.currentContext;
-    var wrapped = cx.wrapFactory.wrapAsJavaObject(cx, global, this, null);
-    for (var i = 0; i < length; i++) {
-        var prop = arguments[i];
-        if (!this.hasOwnProperty(prop)) {
-            continue;
-        }
-        try {
-            wrapped.setAttributes(prop, DONTENUM);
-        } catch (e) {
-            var log = importModule('helma.logging').getLogger(__name__);
-            log.error("Error in dontEnum for property " + prop, e.rhinoException);
-        }
-    }
-    return;
-}
-
-/**
- * Set the READONLY attribute on one or more properties on this object.
- * @param One or more property names or index numbers
- */
-Object.prototype.readOnly = function() {
-    var rhino = new JavaImporter(org.mozilla.javascript);
-    var READONLY = rhino.ScriptableObject.READONLY;
-    var length = arguments.length;
-    var cx = rhino.Context.currentContext;
-    var wrapped = cx.wrapFactory.wrapAsJavaObject(cx, global, this, null);
-    for (var i = 0; i < length; i++) {
-        var prop = arguments[i];
-        if (!this.hasOwnProperty(prop)) {
-            continue;
-        }
-        try {
-            wrapped.setAttributes(prop, READONLY);
-        } catch (e) {
-            var log = importModule('helma.logging').getLogger(__name__);
-            log.error("Error in readOnly for property " + prop, e.rhinoException);
-        }
-    }
-    return;
-}
-
 
 /**
  * copy the properties of an object into
@@ -81,7 +31,7 @@ Object.prototype.readOnly = function() {
  * @param Object the (optional) target object
  * @return Object the resulting object
  */
-Object.prototype.clone = function(clone, recursive) {
+Object.prototype.__defineProperty__("clone", function(clone, recursive) {
    if (!clone)
       clone = new this.constructor();
    var value;
@@ -94,69 +44,23 @@ Object.prototype.clone = function(clone, recursive) {
       }
    }
    return clone;
-};
+}, false, false, true);
 
 
 /**
- * reduce an extended object (ie. a HopObject)
- * to a generic javascript object
- * @param HopObject the HopObject to be reduced
- * @return Object the resulting generic object
+ * Creates a new object as the as the keywise union of the provided objects.
+ * Whenever a key exists in a later object that already existed in an earlier
+ * object, the according value of the earlier object takes precedence.
  */
-Object.prototype.reduce = function(recursive) {
+Object.prototype.__defineProperty__("merge", function() {
     var result = {};
-    for (var i in this) {
-        if (this[i] instanceof HopObject == false)
-            result[i] = this[i];
-        else if (recursive)
-            result[i] = this.reduce(true);
+    for (var i = arguments.length; i > 0; --i) {
+        var obj = arguments[i - 1];
+        for (var property in obj) {
+            result[property] = obj[property];
+        }
     }
     return result;
-};
+}, false, false, true);
 
 
-/**
- * print the contents of an object for debugging
- * @param Object the object to dump
- * @param Boolean recursive flag (if true, dump child objects, too)
- */
-Object.prototype.dump = function(recursive) {
-    var beginList = "<ul>";
-    var endList = "</ul>";
-    var beginItem = "<li>";
-    var endItem = "</li>";
-    var beginKey = "<strong>";
-    var endKey = ":</strong> ";
-    res.write(beginList);
-    for (var p in this) {
-        res.write(beginItem);
-        res.write(beginKey);
-        res.write(p);
-        res.write(endKey);
-        if (recursive && typeof this[p] == "object") {
-            var recurse = true;
-            var types = [Function, Date, String, Number];
-            for (var i in types) {
-                if (this[p] instanceof types[i]) {
-                    recurse = false
-                    break;
-                }
-            }
-            if (recurse == true)
-                this[p].dump(true);
-            else {
-                res.write(this[p].toSource());
-            }
-        } else if (this[p]) {
-            res.write(encode(this[p].toSource()));
-        }
-        res.write(endItem);
-    }
-    res.write(endList);
-    return;
-};
-
-
-// prevent any newly added properties from being enumerated
-for (var i in Object.prototype)
-   Object.prototype.dontEnum(i);

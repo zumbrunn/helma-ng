@@ -1,7 +1,8 @@
 // This module is evaluated on shell scopes,
 // so to extend the helma shell just add stuff here.
 
-var out = java.lang.System.out;
+var output = java.lang.System.out;
+var input = new Packages.jline.ConsoleReader();
 
 /**
  * Write 0..n arguments to standard output.
@@ -9,9 +10,9 @@ var out = java.lang.System.out;
 function write() {
     var length = arguments.length;
     for (var i = 0; i < length; i++) {
-        out.print(String(arguments[i]));
+        output.print(String(arguments[i]));
         if (i < length - 1)
-            out.print(' ');
+            output.print(' ');
     }
 }
 
@@ -20,7 +21,31 @@ function write() {
  */
 function writeln() {
     write.apply(this, arguments);
-    out.println();
+    output.println();
+}
+
+/**
+ * Read a single character from the standard input.
+ */
+function read() {
+    return String.fromCharCode(input.readVirtualKey());
+}
+
+/**
+ * Read a single line from the standard input.
+ * @param prompt {String} optional prompt to display
+ * @param echoChar {String} character to use as echo,
+ *         e.g. '*' for passwords or '' for no echo.
+ */
+function readln(prompt, echoChar) {
+    prompt = prompt || '';
+    if (typeof echoChar == 'string') {
+        var echo = echoChar == '' ?
+               new java.lang.Character(0) :
+               new java.lang.Character(echoChar.charCodeAt(0));
+        return input.readLine(prompt, echo);
+    }
+    return input.readLine(prompt);
 }
 
 /**
