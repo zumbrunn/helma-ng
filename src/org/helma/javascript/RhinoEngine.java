@@ -85,6 +85,7 @@ public class RhinoEngine {
             }
             ScriptableList.init(topLevelScope);
             ScriptableMap.init(topLevelScope);
+            JSAdapter.init(cx, topLevelScope, false);
             ScriptableObject.defineProperty(topLevelScope, "__name__", "global",
                     ScriptableObject.DONTENUM);
             evaluate(cx, getScript("global"), topLevelScope);
