@@ -182,6 +182,7 @@
         <delete file="${helma.jar}"/>
         <delete file="${dpkg.dst}"/>
         <delete file="run.jar"/>
+        <delete dir="${javadocs}"/>
     </target>
 
 
