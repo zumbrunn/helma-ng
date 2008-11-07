@@ -12,6 +12,9 @@ __defineProperty__("global", this, true, true, true);
      * @return {Object} the module scope
      */
     this.__defineProperty__("require", function(moduleName) {
+        if (moduleName && moduleName.__modulePath__)
+            moduleName = moduleName.__modulePath__;
+        
         return getRhinoEngine().loadModule(getRhinoContext(), moduleName, this);
     }, true, true, true);
 
@@ -23,6 +26,9 @@ __defineProperty__("global", this, true, true, true);
      *        module in the calling scope
      */
     this.__defineProperty__("import", function(moduleName, propertyName) {
+        if (moduleName && moduleName.__modulePath__)
+            moduleName = moduleName.__modulePath__;
+        
         var module = this.require(moduleName);
         if (module.__export__) {
             propertyName = propertyName || moduleName;
@@ -44,6 +50,9 @@ __defineProperty__("global", this, true, true, true);
      * @param moduleName the module name such as 'core.object'
      */
     this.__defineProperty__("include", function(moduleName) {
+        if (moduleName && moduleName.__modulePath__)
+            moduleName = moduleName.__modulePath__;
+        
         var module = this.require(moduleName);
         var exported = module.__export__;
         if (!exported) {
@@ -56,6 +65,48 @@ __defineProperty__("global", this, true, true, true);
         }
     }, true, true, true);
 
+    /**
+     * JSAdapter making module scopes available through a modules object
+     */
+    this.__defineProperty__("modules", new JSAdapter({
+        __get__ : function(name) {
+            var moduleLoader = function(name){
+                
+                if (this[name])
+                    return this[name];
+                else if (name == '__modulePath__')
+                    return arguments.callee.modulePath;
+                
+                var modulePath = arguments.callee.modulePath 
+                    ? arguments.callee.modulePath +'.'+ name 
+                    : name;
+                
+                var subModuleObj, tostring;
+                try {
+                    subModuleObj = require(modulePath);
+                    tostring = function(){
+                        return ''+ subModuleObj;
+                    };
+                }
+                catch(e){
+                    subModuleObj = {};
+                    tostring = function(){
+                        return '[JSAdapter modules.'+ modulePath +']';
+                    };
+                };
+                
+                moduleLoader.modulePath = modulePath;
+                subModuleObj.__get__ = moduleLoader;
+                
+                var adapter = new JSAdapter(subModuleObj);
+                adapter.toString = tostring;
+                return adapter;
+            };
+    
+            return moduleLoader(name);
+        }
+    }), true, true, true);
+    
     /**
      * Define the properties to be exported.
      * @param name one or more names of exported properties
